@@ -20,8 +20,8 @@ This repository showcases an audio transcription application using the Whisper m
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/repo-name.git
-   cd repo-name
+   git clone https://github.com/thisiscatcode/whisper.git
+   cd whisper
    ```
 
 2. Install the required packages:
