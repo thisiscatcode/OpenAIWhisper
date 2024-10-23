@@ -1,3 +1,17 @@
+# Whisper Fine-Tuning & Audio Transcription Service
+
+This repository provides a comprehensive audio transcription service using the Whisper model from Hugging Face. It enables users to convert MP3 audio files into text, manage long recordings by processing them in chunks, and includes scripts for fine-tuning the Whisper model on custom datasets.
+
+## Fine-Tuning the Model
+
+For users interested in customizing the Whisper model, a fine-tuning script is provided for use in [Google Colab](https://colab.research.google.com/). Follow these steps:
+
+1. Open the fine-tuning script in Google Colab.
+2. Upload your dataset and configure the script parameters.
+3. Run the cells to train the model on your data.
+
+Refer to the script comments for detailed instructions on preparing your dataset and adjusting training parameters.
+
 # Audio Transcription with Whisper
 
 This repository showcases an audio transcription application using the Whisper model from the Hugging Face Transformers library. The application takes an MP3 audio file, processes it, and returns a text transcription.
