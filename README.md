@@ -12,7 +12,7 @@ For users interested in customizing the Whisper model, a fine-tuning script is p
 
 Refer to the script comments for detailed instructions on preparing your dataset and adjusting training parameters.
 
-# Audio Transcription with Whisper
+## Audio Transcription with Whisper
 
 This repository showcases an audio transcription application using the Whisper model from the Hugging Face Transformers library. The application takes an MP3 audio file, processes it, and returns a text transcription.
 
