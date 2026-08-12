@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+*.mp3
+*.wav
+*.webm
+whisper-output/
+whisper-mid/
+checkpoint-*/
+runs/
+test_output.txt

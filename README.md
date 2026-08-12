@@ -1,90 +1,114 @@
-# Whisper Fine-Tuning & Audio Transcription Service
+# Whisper Fine-Tuning and Transcription Service
 
-This repository provides a comprehensive audio transcription service using the Whisper model from Hugging Face. It enables users to convert MP3 audio files into text, manage long recordings by processing them in chunks, and includes scripts for fine-tuning the Whisper model on custom datasets.
+Hands-on speech ML project for fine-tuning OpenAI Whisper on a custom Japanese
+dataset, evaluating it with held-out Word Error Rate (WER), and serving the
+result through Python transcription workflows and Flask APIs.
 
-## Fine-Tuning the Model
+## What this repository demonstrates
 
-For users interested in customizing the Whisper model, a fine-tuning script is provided for use in [Google Colab](https://colab.research.google.com/). Follow these steps:
+- PyTorch and Hugging Face Transformers model training
+- Custom audio/transcription dataset preparation
+- Reproducible train/evaluation split created before feature extraction
+- Sequence-to-sequence padding and mixed-precision GPU training
+- Held-out WER evaluation and saved evaluation metrics
+- Long-form audio transcription in configurable chunks
+- Flask/Gunicorn inference service patterns
+- Faster-Whisper CPU inference and fine-tuned Transformers inference
 
-1. Open the fine-tuning script in Google Colab.
-2. Upload your dataset and configure the script parameters.
-3. Run the cells to train the model on your data.
+## Project structure
 
-Refer to the script comments for detailed instructions on preparing your dataset and adjusting training parameters.
+| File | Purpose |
+| --- | --- |
+| `finetune_whisper.py` | Fine-tunes Whisper and writes held-out WER metrics |
+| `transcribe.py` | Transcribes long audio with a saved fine-tuned checkpoint |
+| `whisper_flask.py` | Flask upload API for the fine-tuned Transformers checkpoint |
+| `whisper_flask2.py` | CPU-friendly Flask upload API using Faster-Whisper |
+| `gunicorn.conf.py` | Gunicorn configuration for long-running inference requests |
 
-## Audio Transcription with Whisper
+## Dataset format
 
-This repository showcases an audio transcription application using the Whisper model from the Hugging Face Transformers library. The application takes an MP3 audio file, processes it, and returns a text transcription.
+Create a UTF-8 CSV with one row per audio file:
 
-## Features
+```csv
+audio_file,transcription
+clips/example-001.wav,これは音声の書き起こしです。
+clips/example-002.wav,二番目のサンプルです。
+```
 
-- Load and fine-tune Whisper model for audio transcription.
-- Convert MP3 audio files to a format suitable for the model.
-- Transcribe audio in chunks to handle long recordings efficiently.
+Audio files are loaded with `torchaudio`, converted to mono, and resampled to
+16 kHz. Keep private or licensed training audio outside this repository.
 
-## Requirements
+## Setup
 
-- Python 3.7+
-- PyTorch
-- Hugging Face Transformers
-- Pydub
-- FFmpeg (for audio processing)
+Python 3.10+ and FFmpeg are recommended. Install dependencies in a virtual
+environment:
 
-## Installation
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/thisiscatcode/whisper.git
-   cd whisper
-   ```
+## Fine-tuning
 
-2. Install the required packages:
-   ```bash
-   pip install torch transformers pydub
-   ```
+```bash
+python finetune_whisper.py \
+  --csv data/openv_ja.csv \
+  --audio-root data \
+  --output-dir whisper-output \
+  --model openai/whisper-medium \
+  --language japanese \
+  --eval-size 0.1 \
+  --max-steps 4000
+```
 
-3. Install FFmpeg:
-   - **Windows:** [Download FFmpeg](https://ffmpeg.org/download.html) and add it to your system PATH.
-   - **macOS:** Install via Homebrew:
-     ```bash
-     brew install ffmpeg
-     ```
-   - **Linux:** Install via your package manager (e.g., `apt`, `yum`).
+The script saves the best checkpoint, processor files, and held-out evaluation
+metrics under `whisper-output/`. Use a smaller model or fewer steps for a quick
+smoke test. A CUDA GPU is strongly recommended for full fine-tuning.
 
-## Usage
+## Transcription
 
-1. Prepare your MP3 audio file (e.g., `6450.mp3`) and place it in the project directory.
-2. Run the transcription script:
-   ```bash
-   python transcribe.py
-   ```
+```bash
+python transcribe.py recording.mp3 \
+  --model whisper-output \
+  --language japanese \
+  --chunk-seconds 30
+```
 
-3. The transcribed text will be printed to the console.
+## HTTP inference
 
-## How It Works
+Fine-tuned Transformers checkpoint:
 
-The script does the following:
+```bash
+WHISPER_MODEL_DIR=whisper-output gunicorn -c gunicorn.conf.py whisper_flask:app
+curl -F "audio=@recording.mp3" http://localhost:5001/transcribe
+```
 
-- Loads the fine-tuned Whisper model and processor.
-- Converts the MP3 audio file into an array of samples.
-- Breaks the audio into chunks for efficient processing.
-- Uses the Whisper model to generate text transcriptions from each audio chunk.
-- Combines the transcriptions from all chunks into a single output.
+CPU-friendly Faster-Whisper service:
 
-## Model Fine-Tuning
+```bash
+WHISPER_MODEL=large-v2 python whisper_flask2.py
+curl -F "audio=@recording.mp3" http://localhost:5002/transcribe
+```
 
-The model is fine-tuned to improve transcription accuracy. You can replace the model path (`./whisper-mid`) with your own fine-tuned model.
+## Evaluation status
 
-## Contributing
+The repository contains the complete held-out WER evaluation path but does not
+publish a benchmark number yet. A future benchmark should record the dataset
+version, split seed, base-model WER, fine-tuned-model WER, hardware, and training
+configuration. No result should be quoted without the corresponding saved
+metrics artifact.
 
-Feel free to fork this repository and submit pull requests. If you have suggestions or improvements, please open an issue.
+## Engineering notes
+
+- Training and evaluation data are separated with a deterministic seed.
+- Model checkpoints, raw audio, credentials, and runtime output are ignored.
+- Flask services use environment-based model configuration, upload-size limits,
+  temporary-file cleanup, and health endpoints. Add authentication, rate
+  limiting, and production observability before exposing them publicly.
 
 ## License
 
-This project is licensed under the MIT License. See the LICENSE file for details.
-
-## Acknowledgments
-
-- [Hugging Face Transformers](https://huggingface.co/docs/transformers/index)
-- [PyDub](https://github.com/jiaaro/pydub)
-- [FFmpeg](https://ffmpeg.org/)
+Code in this repository is available under the MIT License. Model weights and
+datasets remain subject to their respective licenses and terms.

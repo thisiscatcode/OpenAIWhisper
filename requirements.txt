@@ -1,0 +1,16 @@
+accelerate>=0.30,<2
+datasets>=2.19,<4
+evaluate>=0.4,<1
+faster-whisper>=1.0,<2
+Flask>=3.0,<4
+gunicorn>=22,<24
+jiwer>=3.0,<5
+mysql-connector-python>=8.4,<10
+numpy>=1.26,<3
+pandas>=2.2,<3
+pydub>=0.25,<1
+requests>=2.32,<3
+tensorboard>=2.16,<3
+torch>=2.2,<3
+torchaudio>=2.2,<3
+transformers>=4.41,<5

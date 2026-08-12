@@ -1,52 +1,55 @@
+"""Transcribe long audio with a fine-tuned Whisper checkpoint."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
 import torch
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from pydub import AudioSegment
+from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
-# Load the fine-tuned model and processor
-model_path = "./whisper-mid"
-processor = WhisperProcessor.from_pretrained(model_path)
-model = WhisperForConditionalGeneration.from_pretrained(model_path)
 
-def mp3_to_array(mp3_path):
-    audio = AudioSegment.from_mp3(mp3_path)
-    audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-    samples = audio.get_array_of_samples()
-    return torch.tensor(samples).float() / (2**15)
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("audio", type=Path)
+    parser.add_argument("--model", type=Path, default=Path("whisper-output"))
+    parser.add_argument("--language", default="japanese")
+    parser.add_argument("--chunk-seconds", type=int, default=30)
+    return parser.parse_args()
 
-def transcribe_audio_chunk(audio_array, start_idx, end_idx):
-    chunk = audio_array[start_idx:end_idx]
-    inputs = processor(chunk, sampling_rate=16000, return_tensors="pt")
-    input_features = inputs.input_features
-    with torch.no_grad():
-        predicted_ids = model.generate(
-            input_features,
-            forced_decoder_ids=forced_decoder_ids,
-            max_length=500,  # Max length per chunk
-            num_beams=5,
-            early_stopping=True
+
+def load_audio(path: Path) -> torch.Tensor:
+    audio = AudioSegment.from_file(path)
+    audio = audio.set_frame_rate(16_000).set_channels(1).set_sample_width(2)
+    return torch.tensor(audio.get_array_of_samples(), dtype=torch.float32) / (2**15)
+
+
+def main() -> None:
+    args = parse_args()
+    processor = WhisperProcessor.from_pretrained(args.model)
+    model = WhisperForConditionalGeneration.from_pretrained(args.model)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device).eval()
+
+    audio = load_audio(args.audio)
+    samples_per_chunk = 16_000 * args.chunk_seconds
+    transcripts: list[str] = []
+    forced_ids = processor.get_decoder_prompt_ids(
+        language=args.language, task="transcribe"
+    )
+    for start in range(0, len(audio), samples_per_chunk):
+        chunk = audio[start : start + samples_per_chunk]
+        features = processor(
+            chunk.numpy(), sampling_rate=16_000, return_tensors="pt"
+        ).input_features.to(device)
+        with torch.inference_mode():
+            predicted_ids = model.generate(features, forced_decoder_ids=forced_ids)
+        transcripts.append(
+            processor.batch_decode(predicted_ids, skip_special_tokens=True)[0].strip()
         )
-    transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
-    return transcription[0]
+    print(" ".join(part for part in transcripts if part))
 
-# Convert MP3 to array
-audio_path = "6450.mp3"
-audio_array = mp3_to_array(audio_path)
 
-# Tokenize the initial prompt
-initial_prompt = "、。"
-prompt_ids = processor.tokenizer.encode(initial_prompt, add_special_tokens=False)
-forced_decoder_ids = [(i, token_id) for i, token_id in enumerate(prompt_ids)]
-
-# Define chunk size and process in chunks
-chunk_size = 16000 * 30  # 30 seconds chunks
-num_chunks = len(audio_array) // chunk_size + 1
-
-full_transcription = ""
-
-for i in range(num_chunks):
-    start_idx = i * chunk_size
-    end_idx = (i + 1) * chunk_size if (i + 1) * chunk_size < len(audio_array) else len(audio_array)
-    chunk_transcription = transcribe_audio_chunk(audio_array, start_idx, end_idx)
-    full_transcription += chunk_transcription + " "
-
-print(full_transcription)
+if __name__ == "__main__":
+    main()

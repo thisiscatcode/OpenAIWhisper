@@ -1,123 +1,75 @@
-from flask import Flask, request, jsonify
-from faster_whisper import WhisperModel
-import requests
+"""CPU-friendly Flask API backed by Faster-Whisper.
+
+This service is useful when low-memory CPU inference matters more than loading
+the fine-tuned Transformers checkpoint used by ``whisper_flask.py``.
+"""
+
+from __future__ import annotations
+
+import os
+import tempfile
 import time
-import mysql.connector
-import torch
-from transformers import WhisperForConditionalGeneration, WhisperTokenizer, WhisperFeatureExtractor
-import torchaudio
+from functools import lru_cache
+from pathlib import Path
+
+from faster_whisper import WhisperModel
+from flask import Flask, jsonify, request
 
 app = Flask(__name__)
+MODEL_NAME = os.getenv("WHISPER_MODEL", "large-v2")
+DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
+COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+LANGUAGE = os.getenv("WHISPER_LANGUAGE", "ja")
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "50"))
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 
-# Initialize the Whisper model
-whisper_model_size = "large-v2"
-whisper_model = WhisperModel(whisper_model_size, device="cpu", compute_type="int8")
 
-# Path to the fine-tuned model files
-model_dir = "/data/whisper_env/whisper-mid"
+@lru_cache(maxsize=1)
+def get_model() -> WhisperModel:
+    return WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE_TYPE)
 
-# Load the fine-tuned model, tokenizer, and feature extractor
-whisper_ft_model = WhisperForConditionalGeneration.from_pretrained(model_dir)
-whisper_ft_tokenizer = WhisperTokenizer.from_pretrained(model_dir)
-feature_extractor = WhisperFeatureExtractor.from_pretrained(model_dir)
 
-def load_audio(file_path):
-    speech_array, sampling_rate = torchaudio.load(file_path)
-    if speech_array.shape[0] > 1:
-        speech_array = torch.mean(speech_array, dim=0, keepdim=True)
-    return speech_array.squeeze().numpy(), sampling_rate
+@app.get("/health")
+def health():
+    return jsonify(
+        {
+            "status": "ok",
+            "model": MODEL_NAME,
+            "device": DEVICE,
+            "compute_type": COMPUTE_TYPE,
+        }
+    )
 
-def resample_audio(audio, orig_sr, target_sr):
-    if orig_sr != target_sr:
-        resampler = torchaudio.transforms.Resample(orig_freq=orig_sr, new_freq=target_sr)
-        audio = resampler(torch.from_numpy(audio)).numpy()
-    return audio
 
-def transcribe_audio(whisper_ft_model, whisper_ft_tokenizer, feature_extractor, audio_file):
-    speech_array, sampling_rate = load_audio(audio_file)
-    target_sr = feature_extractor.sampling_rate
-    speech_array = resample_audio(speech_array, sampling_rate, target_sr)
-    
-    asr_pipeline = pipeline("automatic-speech-recognition", 
-                          model=whisper_ft_model, 
-                          tokenizer=whisper_ft_tokenizer, 
-                          feature_extractor=feature_extractor)
-    
-    inputs = {"array": speech_array, "sampling_rate": target_sr}
-    result = asr_pipeline(inputs)
-    return result['text']
+@app.post("/transcribe")
+def transcribe_upload():
+    upload = request.files.get("audio")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "multipart field 'audio' is required"}), 400
 
-@app.route('/get_whisper_text', methods=['POST'])
-def get_whisper_text():
-    start_time = time.time()
-    request_data = request.get_json()
-    
-    if 'audio_url' not in request_data:
-        return jsonify({"error": "Audio URL is missing in the JSON data"})
-
-    audio_url = request_data['audio_url']
-    response = requests.get(audio_url)
-    
-    if response.status_code != 200:
-        return jsonify({"error": "Failed to download the audio file"})
-
-    temp_audio_path = "whisper_audio.webm"
-    with open(temp_audio_path, "wb") as audio_file:
-        audio_file.write(response.content)
-
-    segments, info = whisper_model.transcribe(temp_audio_path, initial_prompt='、。',language='ja')
-    untranslated_result = "\n".join(segment.text for segment in segments)
-
-    total_execution_time = time.time() - start_time
-    save_whisper(audio_url, f"(whisper: {total_execution_time:.1f}秒)\n{untranslated_result}", 
-                total_execution_time)
-
-    return untranslated_result
-
-@app.route('/get_whisper_text_youtube', methods=['POST'])
-def get_whisper_text_youtube():
-    start_time = time.time()
-    audio_path = request.form.get('audio_path')
-    
-    segments, info = whisper_model.transcribe(audio_path, initial_prompt='、。？！',language='ja')
-    untranslated_result = "\n".join(segment.text for segment in segments)
-
-    total_execution_time = time.time() - start_time
-    return untranslated_result
-
-@app.route('/get_ftune_whisper_text_youtube', methods=['POST'])
-def get_ftune_whisper_text_youtube():
-    start_time = time.time()
-    audio_path = request.form.get('audio_path')
-    
-    transcription = transcribe_audio(whisper_ft_model, whisper_ft_tokenizer, 
-                                   feature_extractor, audio_path)
-    
-    total_execution_time = time.time() - start_time
-    return transcription
-
-def save_whisper(file_path, audio_text, total_execution_time):
+    suffix = Path(upload.filename).suffix or ".audio"
+    started = time.perf_counter()
+    temporary_path: Path | None = None
     try:
-        file_path = file_path.replace("", "")
-        update_query = "UPDATE bot_mp3_files SET audio_text_2 = %s WHERE file_path = %s"
-        data_to_update = (audio_text, file_path)
-
-        mysql_conn = mysql.connector.connect(
-            host='xxx',
-            user='xxx',
-            password='xxx',
-            database='xxx'
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temporary:
+            upload.save(temporary)
+            temporary_path = Path(temporary.name)
+        segments, info = get_model().transcribe(
+            str(temporary_path), language=LANGUAGE, vad_filter=True
         )
-        
-        mysql_cursor = mysql_conn.cursor()
-        mysql_cursor.execute(update_query, data_to_update)
-        mysql_conn.commit()
-
+        text = " ".join(segment.text.strip() for segment in segments).strip()
+        return jsonify(
+            {
+                "text": text,
+                "language": info.language,
+                "language_probability": round(info.language_probability, 4),
+                "elapsed_seconds": round(time.perf_counter() - started, 3),
+            }
+        )
     finally:
-        if 'mysql_cursor' in locals():
-            mysql_cursor.close()
-        if 'mysql_conn' in locals():
-            mysql_conn.close()
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5002)
