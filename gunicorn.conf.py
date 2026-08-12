@@ -1,5 +1,10 @@
-# gunicorn.conf.py
+"""Gunicorn defaults for model-serving workloads."""
 
-timeout = 86400  # Set to 24 hours
-graceful_timeout = 86400
-bind = "0.0.0.0:5001"
+import os
+
+bind = os.getenv("GUNICORN_BIND", "0.0.0.0:5001")
+workers = int(os.getenv("GUNICORN_WORKERS", "1"))
+timeout = int(os.getenv("GUNICORN_TIMEOUT", "600"))
+graceful_timeout = int(os.getenv("GUNICORN_GRACEFUL_TIMEOUT", "60"))
+accesslog = "-"
+errorlog = "-"

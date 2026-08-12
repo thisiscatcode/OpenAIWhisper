@@ -23,6 +23,7 @@ result through Python transcription workflows and Flask APIs.
 | `transcribe.py` | Transcribes long audio with a saved fine-tuned checkpoint |
 | `whisper_flask.py` | Flask upload API for the fine-tuned Transformers checkpoint |
 | `whisper_flask2.py` | CPU-friendly Flask upload API using Faster-Whisper |
+| `colab_env_prepare.py` | Installs the pinned dependencies in Colab/notebooks |
 | `gunicorn.conf.py` | Gunicorn configuration for long-running inference requests |
 
 ## Dataset format
