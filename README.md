@@ -93,6 +93,55 @@ WHISPER_MODEL=large-v2 python whisper_flask2.py
 curl -F "audio=@recording.mp3" http://localhost:5002/transcribe
 ```
 
+Both services expose `GET /health`. Models load lazily on the first transcription request, so process startup and orchestration checks do not allocate model memory.
+
+Example response:
+
+```json
+{
+  "text": "これは音声の書き起こしです。",
+  "language": "ja",
+  "language_probability": 0.9981,
+  "elapsed_seconds": 2.417
+}
+```
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `WHISPER_MODEL_DIR` | `whisper-output` | Fine-tuned Transformers checkpoint |
+| `WHISPER_MODEL` | `large-v2` | Faster-Whisper model name or local path |
+| `WHISPER_DEVICE` | `cpu` | Faster-Whisper device |
+| `WHISPER_COMPUTE_TYPE` | `int8` | Faster-Whisper compute type |
+| `WHISPER_LANGUAGE` | `ja` | Transcription language |
+| `MAX_UPLOAD_MB` | `50` | Upload-size limit |
+| `GUNICORN_WORKERS` | `1` | Worker count; each worker may load a model copy |
+
+## Tests and continuous integration
+
+```bash
+python -m pip install -r requirements-dev.txt
+ruff check .
+pytest -q
+```
+
+API tests replace the model with a lightweight fake, so CI validates upload handling, response contracts and temporary-file cleanup without downloading weights.
+
+## Docker
+
+The default container starts the CPU-friendly Faster-Whisper service:
+
+```bash
+docker build -t whisper-transcription-api .
+docker run --rm -p 5002:5002 \
+  -e WHISPER_MODEL=small \
+  -e WHISPER_LANGUAGE=ja \
+  whisper-transcription-api
+```
+
+Mount a local model cache or checkpoint for repeatable offline deployments.
+
 ## Evaluation status
 
 The repository contains the complete held-out WER evaluation path but does not
@@ -105,9 +154,12 @@ metrics artifact.
 
 - Training and evaluation data are separated with a deterministic seed.
 - Model checkpoints, raw audio, credentials, and runtime output are ignored.
-- Flask services use environment-based model configuration, upload-size limits,
-  temporary-file cleanup, and health endpoints. Add authentication, rate
-  limiting, and production observability before exposing them publicly.
+- Flask services use environment-based model configuration, upload-size and
+  media-type limits, temporary-file cleanup, lazy loading, and health endpoints.
+- Add authentication, rate limiting, malware scanning and production
+  observability before exposing uploads publicly.
+- Do not log private audio or transcripts. Define retention and deletion rules
+  in the consuming product.
 
 ## License
 

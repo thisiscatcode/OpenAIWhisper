@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.venv
+__pycache__
+.pytest_cache
+.ruff_cache
+tests
+whisper-output
+whisper-mid
+checkpoint-*
+runs
+*.mp3
+*.wav
+*.webm

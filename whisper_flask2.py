@@ -11,8 +11,8 @@ import tempfile
 import time
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
-from faster_whisper import WhisperModel
 from flask import Flask, jsonify, request
 
 app = Flask(__name__)
@@ -25,7 +25,9 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 
 
 @lru_cache(maxsize=1)
-def get_model() -> WhisperModel:
+def get_model() -> Any:
+    from faster_whisper import WhisperModel
+
     return WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE_TYPE)
 
 
@@ -37,6 +39,7 @@ def health():
             "model": MODEL_NAME,
             "device": DEVICE,
             "compute_type": COMPUTE_TYPE,
+            "model_loaded": get_model.cache_info().currsize > 0,
         }
     )
 
@@ -47,7 +50,9 @@ def transcribe_upload():
     if upload is None or not upload.filename:
         return jsonify({"error": "multipart field 'audio' is required"}), 400
 
-    suffix = Path(upload.filename).suffix or ".audio"
+    suffix = Path(upload.filename).suffix.lower() or ".audio"
+    if suffix not in {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}:
+        return jsonify({"error": "unsupported audio format"}), 400
     started = time.perf_counter()
     temporary_path: Path | None = None
     try:

@@ -11,3 +11,7 @@ whisper-mid/
 checkpoint-*/
 runs/
 test_output.txt
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
